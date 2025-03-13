@@ -7,6 +7,9 @@ import MicIcon from '@mui/icons-material/Mic';
 import ReactMarkdown from 'react-markdown';
 import './ChatApp.css';
 
+// Import notification sound from local folder
+import notificationSound from '../sounds/notification.mp3';
+
 export default function ChatApp() {
   const [messages, setMessages] = useState([]); // start with no messages
   const [inputValue, setInputValue] = useState('');
@@ -57,6 +60,12 @@ export default function ChatApp() {
     }
   };
 
+  // Play notification sound when bot response is received
+  const playNotificationSound = () => {
+    const audio = new Audio(notificationSound);
+    audio.play();
+  };
+
   // Send the user's message and call the backend API to get the bot response
   const handleSend = async () => {
     if (!inputValue.trim()) return;
@@ -79,17 +88,20 @@ export default function ChatApp() {
       const data = await response.json();
       const botMessage = {
         id: Date.now() + 1,
-        sender: 'Dominika',
+        sender: 'Omnis',
         text: data.answer || 'No answer provided.'
       };
       setMessages((prev) => [...prev, botMessage]);
+      // Play notification sound when bot response is received
+      playNotificationSound();
     } catch (error) {
       const errorMessage = {
         id: Date.now() + 2,
-        sender: 'Dominika',
+        sender: 'Omnis',
         text: 'Error communicating with the chatbot.'
       };
       setMessages((prev) => [...prev, errorMessage]);
+      playNotificationSound();
     } finally {
       setApiLoading(false);
     }
@@ -115,7 +127,7 @@ export default function ChatApp() {
     <Box className="chat-container">
       <Card className="chat-card">
         <CardHeader 
-          avatar={<Avatar src="https://i.pravatar.cc/40?img=60" />}
+          avatar={<Avatar src="https://i.pravatar.cc/40?img=60" />} 
           title={<Typography variant="h6">Omnis</Typography>}
           subheader={<Typography variant="caption">Subhagato Adak</Typography>}
           className="chat-header"

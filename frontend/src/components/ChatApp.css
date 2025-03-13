@@ -1,22 +1,25 @@
 /* ChatApp.css */
 
-/* Center the chat container on a gradient background */
+/* Stretch the chat container to fill the viewport */
 .chat-container {
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
+    width: 100vw;
+    height: 100vh;
     background: linear-gradient(135deg, #7f7fd5, #86a8e7, #91eae4);
-    padding: 20px;
+    padding: 0;
+    box-sizing: border-box;
   }
   
-  /* Increase chatbot size: max-width increased and height expanded */
+  /* Stretch chat card to fill the window */
   .chat-card {
     width: 100%;
-    max-width: 600px;
+    max-width: 100%;
+    height: 100%;
     display: flex;
     flex-direction: column;
-    height: 80vh;
+    border-radius: 0; /* Remove rounded corners for full-stretch effect */
   }
   
   /* Chat header styling */
@@ -25,19 +28,22 @@
     border-bottom: 1px solid #eee;
   }
   
-  /* Chat content area: scrollable with fixed area */
+  /* Chat content area: scrollable with vertical stacking */
   .chat-content {
     flex: 1;
     overflow-y: auto;
     background-color: #f9f9f9;
     padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
   
   /* Message bubble styling */
   .message {
+    display: block;
     padding: 8px 12px;
     border-radius: 20px;
-    margin-bottom: 8px;
     max-width: 90%;
     word-wrap: break-word;
   }

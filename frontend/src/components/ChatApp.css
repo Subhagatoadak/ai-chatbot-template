@@ -1,0 +1,88 @@
+/* ChatApp.css */
+
+/* Center the chat container on a gradient background */
+.chat-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #7f7fd5, #86a8e7, #91eae4);
+    padding: 20px;
+  }
+  
+  /* Increase chatbot size: max-width increased and height expanded */
+  .chat-card {
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    height: 80vh;
+  }
+  
+  /* Chat header styling */
+  .chat-header {
+    background-color: #fff;
+    border-bottom: 1px solid #eee;
+  }
+  
+  /* Chat content area: scrollable with fixed area */
+  .chat-content {
+    flex: 1;
+    overflow-y: auto;
+    background-color: #f9f9f9;
+    padding: 16px;
+  }
+  
+  /* Message bubble styling */
+  .message {
+    padding: 8px 12px;
+    border-radius: 20px;
+    margin-bottom: 8px;
+    max-width: 90%;
+    word-wrap: break-word;
+  }
+  
+  .message-left {
+    background-color: #e8e8e8;
+    align-self: flex-start;
+    border-bottom-left-radius: 0;
+  }
+  
+  .message-right {
+    background-color: #bfe3ff;
+    align-self: flex-end;
+    border-bottom-right-radius: 0;
+  }
+  
+  /* Chat actions (input area) styling */
+  .chat-actions {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    border-top: 1px solid #eee;
+    background-color: #fff;
+  }
+  
+  /* Loading dots styling */
+  .loading-dots span {
+    display: inline-block;
+    font-size: 1.5rem;
+    opacity: 0;
+    animation: blink 1s infinite;
+  }
+  
+  .loading-dots span:nth-child(1) {
+    animation-delay: 0s;
+  }
+  .loading-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .loading-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+  
+  @keyframes blink {
+    0%, 20%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+  }
+  

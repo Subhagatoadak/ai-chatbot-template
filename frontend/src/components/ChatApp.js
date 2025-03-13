@@ -79,14 +79,14 @@ export default function ChatApp() {
       const data = await response.json();
       const botMessage = {
         id: Date.now() + 1,
-        sender: 'Omnis',
+        sender: 'Dominika',
         text: data.answer || 'No answer provided.'
       };
       setMessages((prev) => [...prev, botMessage]);
     } catch (error) {
       const errorMessage = {
         id: Date.now() + 2,
-        sender: 'Omnis',
+        sender: 'Dominika',
         text: 'Error communicating with the chatbot.'
       };
       setMessages((prev) => [...prev, errorMessage]);

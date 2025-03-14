@@ -19,7 +19,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5080:5080"
-
     env_file:
       - config/.env
 
@@ -27,11 +26,20 @@ services:
     image: semitechnologies/weaviate:latest
     ports:
       - "8080:8080"
+      - "50051:50051"
     environment:
       QUERY_DEFAULTS_LIMIT: 20
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       PERSISTENCE_DATA_PATH: "./data"
-      DEFAULT_VECTORIZER_MODULE: "none"
+      DEFAULT_VECTORIZER_MODULE: "text2vec-openai"
+      ENABLE_MODULES: "text2vec-openai"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    env_file:
+      - config/.env
 
   weaviate-agent:
     build:
@@ -40,7 +48,10 @@ services:
     ports:
       - "8001:8001"
     depends_on:
-      - weaviate
+      weaviate:
+        condition: service_healthy
+    env_file:
+      - config/.env
 
   frontend:
     build:

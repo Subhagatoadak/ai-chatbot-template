@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 # --- Data Models ---
 class QueryRequest(BaseModel):
-    question: str  # Note: using "question" key to match expected payload
+    question: str
 
 class Document(BaseModel):
     question: str
@@ -28,7 +28,7 @@ client = weaviate.connect_to_custom(
 
 def create_question_collection():
     """
-    Creates the 'Question' collection if it doesn't already exist.
+    Creates the 'Question' collection (class) if it doesn't already exist.
     """
     if client.collections.exists("Question"):
         print("Collection 'Question' already exists.")
@@ -48,31 +48,31 @@ def create_question_collection():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create collection and insert a random sample document if none exist
     create_question_collection()
     questions_collection = client.collections.get("Question")
     existing_docs = questions_collection.query.fetch_objects(limit=1)
     if not existing_docs.objects:
+        # Insert distinct sample documents to ensure varied context.
         sample_docs = [
             {
                 "question": "What is the capital of France?",
-                "answer": "Paris",
+                "answer": "Paris is the capital city of France, known for its art, architecture, and culture.",
                 "category": "geography"
             },
             {
                 "question": "Who wrote 'Hamlet'?",
-                "answer": "William Shakespeare",
+                "answer": "William Shakespeare, the renowned English playwright, authored 'Hamlet', one of the most famous tragedies.",
                 "category": "literature"
             },
             {
                 "question": "What is the boiling point of water?",
-                "answer": "100°C at sea level",
+                "answer": "Under standard atmospheric conditions, water boils at 100°C (212°F), a fundamental fact in science.",
                 "category": "science"
             }
         ]
-        random_doc = random.choice(sample_docs)
-        questions_collection.data.insert(properties=random_doc)
-        print("Random document indexed:", random_doc)
+        for doc in sample_docs:
+            questions_collection.data.insert(properties=doc)
+        print("Sample documents indexed:", sample_docs)
     yield
     client.close()
 
@@ -81,16 +81,18 @@ app = FastAPI(title="Weaviate Knowledge Base Agent", lifespan=lifespan)
 @app.post("/context")
 async def get_context(request: QueryRequest):
     """
-    Given a question, perform a near_text search in the 'Question' collection
+    Given a question, performs a near_text search in the 'Question' collection
     to retrieve similar documents.
     """
     try:
         questions_collection = client.collections.get("Question")
         response = questions_collection.query.near_text(
             query=request.question,
-            limit=3,
+            limit=1,
             return_properties=["question", "answer", "category"]
         )
+        # Log raw response for debugging
+        print("Raw near_text response:", response)
         results = [
             {
                 "question": obj.properties.get("question", ""),
@@ -106,7 +108,7 @@ async def get_context(request: QueryRequest):
 @app.post("/add")
 async def add_document(doc: Document):
     """
-    Adds a new document into the 'Question' collection.
+    Inserts a new document into the 'Question' collection.
     """
     try:
         questions_collection = client.collections.get("Question")

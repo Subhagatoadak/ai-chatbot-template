@@ -10,6 +10,28 @@ class ChatResponse(BaseModel):
     
 router = APIRouter()
 
+
+def get_context_for_query(query: str) -> dict:
+    """
+    Calls the Weaviate Agent service to get context documents for a query.
+    """
+    context = get_context_for_query(query)
+    # Combine the original question with the context information.
+    # In a production system, you might embed the context into your LLM prompt.
+    if "error" in context:
+        combined_prompt = query
+    else:
+        combined_prompt = query + "\n\nContext:\n" + str(context)
+        
+    url = "http://weaviate-agent:8001/context"  # Docker service name and port
+    payload = {"query": combined_prompt}
+    try:
+        response = requests.post(url, json=payload, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 def get_response(question: str) -> str:
     url = "http://llm-agent:5080/llm"
     payload = {"question": question}

@@ -11,6 +11,7 @@ services:
       - config/.env
     depends_on:
       - llm-agent
+      - weaviate-agent
 
   llm-agent:
     build:
@@ -18,10 +19,28 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5080:5080"
-    # Inherit the OPENAI_API_KEY from your host environment.
-    # You can also specify this in a .env file or override it as needed.
+
     env_file:
       - config/.env
+
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    ports:
+      - "8080:8080"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 20
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "./data"
+      DEFAULT_VECTORIZER_MODULE: "none"
+
+  weaviate-agent:
+    build:
+      context: ./knowledge-base/weaviate-agent
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    depends_on:
+      - weaviate
 
   frontend:
     build:
@@ -41,3 +60,4 @@ services:
     depends_on:
       - frontend
       - backend
+  

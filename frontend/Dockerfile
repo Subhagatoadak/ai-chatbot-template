@@ -11,6 +11,9 @@ RUN npm install
 COPY . ./
 RUN npm run build
 
+# Install nodemon globally for auto-restart
+RUN npm install -g nodemon
+
 # Stage 2: Serve the built app using Nginx
 FROM nginx:alpine
 COPY --from=build /app/build /usr/share/nginx/html

@@ -128,7 +128,7 @@ export default function ChatApp() {
       <Card className="chat-card">
         <CardHeader 
           avatar={<Avatar src="https://i.pravatar.cc/40?img=60" />} 
-          title={<Typography variant="h6">Omnis</Typography>}
+          title={<Typography variant="h6">Omnis Chatbot</Typography>}
           subheader={<Typography variant="caption">Subhagato Adak</Typography>}
           className="chat-header"
         />

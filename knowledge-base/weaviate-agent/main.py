@@ -4,19 +4,18 @@ import weaviate
 import weaviate.classes as wvc
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-app = FastAPI(title="Weaviate Knowledge Base Agent")
+from contextlib import asynccontextmanager
 
 # --- Data Models ---
 class QueryRequest(BaseModel):
-    query: str
+    question: str  # Note: using "question" key to match expected payload
 
 class Document(BaseModel):
     question: str
     answer: str = ""
     category: str = ""
 
-# --- Correct Weaviate Client Initialization (V4) ---
+# --- Weaviate Client Initialization (v4) ---
 client = weaviate.connect_to_custom(
     http_host=os.getenv("WEAVIATE_HOST", "weaviate"),
     http_port=int(os.getenv("WEAVIATE_PORT", "8080")),
@@ -28,29 +27,32 @@ client = weaviate.connect_to_custom(
 )
 
 def create_question_collection():
+    """
+    Creates the 'Question' collection if it doesn't already exist.
+    """
     if client.collections.exists("Question"):
         print("Collection 'Question' already exists.")
         return
 
-    questions = client.collections.create(
+    client.collections.create(
         name="Question",
         vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai(),
         generative_config=wvc.config.Configure.Generative.cohere(),
         properties=[
-            wvc.config.Property("question", wvc.config.DataType.TEXT),
-            wvc.config.Property("answer", wvc.config.DataType.TEXT),
-            wvc.config.Property("category", wvc.config.DataType.TEXT),
+            wvc.config.Property(name="question", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="answer", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="category", data_type=wvc.config.DataType.TEXT),
         ]
     )
     print("Collection 'Question' created.")
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create collection and insert a random sample document if none exist
     create_question_collection()
-
     questions_collection = client.collections.get("Question")
-    existing = questions_collection.query.fetch_objects(limit=1)
-    if len(existing.objects) == 0:
+    existing_docs = questions_collection.query.fetch_objects(limit=1)
+    if not existing_docs.objects:
         sample_docs = [
             {
                 "question": "What is the capital of France?",
@@ -69,22 +71,30 @@ async def startup_event():
             }
         ]
         random_doc = random.choice(sample_docs)
-        questions_collection.data.insert(random_doc)
-        print(f"Random document indexed: {random_doc}")
+        questions_collection.data.insert(properties=random_doc)
+        print("Random document indexed:", random_doc)
+    yield
+    client.close()
+
+app = FastAPI(title="Weaviate Knowledge Base Agent", lifespan=lifespan)
 
 @app.post("/context")
 async def get_context(request: QueryRequest):
+    """
+    Given a question, perform a near_text search in the 'Question' collection
+    to retrieve similar documents.
+    """
     try:
         questions_collection = client.collections.get("Question")
         response = questions_collection.query.near_text(
-            query=request.query,
+            query=request.question,
             limit=3,
             return_properties=["question", "answer", "category"]
         )
         results = [
             {
-                "question": obj.properties["question"],
-                "answer": obj.properties["answer"],
+                "question": obj.properties.get("question", ""),
+                "answer": obj.properties.get("answer", ""),
                 "category": obj.properties.get("category", "")
             }
             for obj in response.objects
@@ -95,9 +105,12 @@ async def get_context(request: QueryRequest):
 
 @app.post("/add")
 async def add_document(doc: Document):
+    """
+    Adds a new document into the 'Question' collection.
+    """
     try:
         questions_collection = client.collections.get("Question")
-        res = questions_collection.data.insert(doc.dict())
-        return {"status": "success", "object_id": res.uuid}
+        res = questions_collection.data.insert(properties=doc.dict())
+        return {"status": "success", "object_id": str(res.uuid)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

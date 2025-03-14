@@ -1,6 +1,6 @@
 FROM python:3.9-slim
 
-WORKDIR /waeviate-agent
+WORKDIR /weaviate-agent
 
 # Copy the requirements and install them
 COPY requirements.txt .

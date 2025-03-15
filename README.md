@@ -3,7 +3,7 @@ This project provides a **template** for building an **AI-powered chatbot** usin
 
 ---
 
-## **🛠️ Features**
+## **🛠️ Features **
 ✅ **AI-Powered Responses** - Supports OpenAI, HuggingFace, or custom LLMs  
 ✅ **Voice Input** - Uses Web Speech API for speech-to-text  
 ✅ **Markdown Rendering** - Supports formatted text like **bold**, *italic*, `code` blocks  

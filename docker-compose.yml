@@ -22,7 +22,6 @@ services:
     env_file:
       - config/.env
 
-  
   frontend:
     build:
       context: ./frontend
@@ -41,7 +40,7 @@ services:
     depends_on:
       - frontend
       - backend
-  
+
   weaviate:
     image: semitechnologies/weaviate:latest
     ports:
@@ -50,11 +49,14 @@ services:
     environment:
       QUERY_DEFAULTS_LIMIT: 20
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
-      PERSISTENCE_DATA_PATH: "./data"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
       DEFAULT_VECTORIZER_MODULE: "text2vec-openai"
       ENABLE_MODULES: "text2vec-openai"
+      CLUSTER_HOSTNAME: "weaviate"  # Force single-node mode
+    volumes:
+      - weaviate_data:/var/lib/weaviate
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/live"]
+      test: ["CMD", "curl", "-f", "http://weaviate:8080/v1/.well-known/live"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -68,8 +70,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8001:8001"
-    depends_on:
-      - weaviate
     env_file:
       - config/.env
     healthcheck:
@@ -77,5 +77,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-    
 
+volumes:
+  weaviate_data:

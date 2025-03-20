@@ -1,7 +1,7 @@
 import os
-import random
 import weaviate
 import weaviate.classes as wvc
+import pypdf
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -10,12 +10,11 @@ from contextlib import asynccontextmanager
 class QueryRequest(BaseModel):
     question: str
 
-class Document(BaseModel):
-    question: str
-    answer: str = ""
-    category: str = ""
+class LabourDocument(BaseModel):
+    text: str
+    chunk_id: int
 
-# --- Weaviate Client Initialization (v4) ---
+# --- Weaviate Client Initialization ---
 client = weaviate.connect_to_custom(
     http_host=os.getenv("WEAVIATE_HOST", "weaviate"),
     http_port=int(os.getenv("WEAVIATE_PORT", "8080")),
@@ -26,93 +25,85 @@ client = weaviate.connect_to_custom(
     headers={"X-OpenAI-Api-Key": os.getenv("OPENAI_API_KEY")}
 )
 
-def create_question_collection():
+def create_labour_act_collection():
     """
-    Creates the 'Question' collection (class) if it doesn't already exist.
+    Creates the 'LabourAct' collection if it doesn't already exist.
     """
-    if client.collections.exists("Question"):
-        print("Collection 'Question' already exists.")
+    if client.collections.exists("LabourAct"):
+        print("Collection 'LabourAct' already exists.")
         return
 
     client.collections.create(
-        name="Question",
+        name="LabourAct",
         vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai(),
-        generative_config=wvc.config.Configure.Generative.cohere(),
         properties=[
-            wvc.config.Property(name="question", data_type=wvc.config.DataType.TEXT),
-            wvc.config.Property(name="answer", data_type=wvc.config.DataType.TEXT),
-            wvc.config.Property(name="category", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="text", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="chunk_id", data_type=wvc.config.DataType.INT),
         ]
     )
-    print("Collection 'Question' created.")
+    print("Collection 'LabourAct' created.")
+
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    with open(pdf_path, "rb") as file:
+        reader = pypdf.PdfReader(file)
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+    return text
+
+def chunk_text(text, chunk_size=1000):
+    """
+    Splits text into chunks of `chunk_size` words.
+    """
+    words = text.split()
+    return [" ".join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)]
+
+def ingest_labour_act_pdf():
+    """
+    Extracts text from the Labour Act PDF and stores it in Weaviate.
+    """
+    pdf_path = "data/Labour Act.pdf"
+
+    # Extract and chunk text
+    document_text = extract_text_from_pdf(pdf_path)
+    document_chunks = chunk_text(document_text)
+
+    # Insert chunks into Weaviate
+    labour_collection = client.collections.get("LabourAct")
+    for i, chunk in enumerate(document_chunks):
+        labour_collection.data.insert(properties={"text": chunk, "chunk_id": i})
+    
+    print(f"Inserted {len(document_chunks)} chunks from Labour Act PDF.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    create_question_collection()
-    questions_collection = client.collections.get("Question")
-    existing_docs = questions_collection.query.fetch_objects(limit=1)
+    create_labour_act_collection()
+
+    # Ingest Labour Act content if not already present
+    labour_collection = client.collections.get("LabourAct")
+    existing_docs = labour_collection.query.fetch_objects(limit=1)
     if not existing_docs.objects:
-        # Insert distinct sample documents to ensure varied context.
-        sample_docs = [
-            {
-                "question": "What is the capital of France?",
-                "answer": "Paris is the capital city of France, known for its art, architecture, and culture.",
-                "category": "geography"
-            },
-            {
-                "question": "Who wrote 'Hamlet'?",
-                "answer": "William Shakespeare, the renowned English playwright, authored 'Hamlet', one of the most famous tragedies.",
-                "category": "literature"
-            },
-            {
-                "question": "What is the boiling point of water?",
-                "answer": "Under standard atmospheric conditions, water boils at 100°C (212°F), a fundamental fact in science.",
-                "category": "science"
-            }
-        ]
-        for doc in sample_docs:
-            questions_collection.data.insert(properties=doc)
-        print("Sample documents indexed:", sample_docs)
+        ingest_labour_act_pdf()
+
     yield
     client.close()
 
-app = FastAPI(title="Weaviate Knowledge Base Agent", lifespan=lifespan)
+app = FastAPI(title="Weaviate Labour Act Agent", lifespan=lifespan)
 
 @app.post("/context")
 async def get_context(request: QueryRequest):
     """
-    Given a question, performs a near_text search in the 'Question' collection
-    to retrieve similar documents.
+    Given a question, performs a near_text search in the 'LabourAct' collection.
     """
     try:
-        questions_collection = client.collections.get("Question")
-        response = questions_collection.query.near_text(
+        labour_collection = client.collections.get("LabourAct")
+        response = labour_collection.query.near_text(
             query=request.question,
-            limit=1,
-            return_properties=["question", "answer", "category"]
+            limit=3,
+            return_properties=["text"]
         )
-        # Log raw response for debugging
-        print("Raw near_text response:", response)
-        results = [
-            {
-                "question": obj.properties.get("question", ""),
-                "answer": obj.properties.get("answer", ""),
-                "category": obj.properties.get("category", "")
-            }
-            for obj in response.objects
-        ]
+        print("Raw Weaviate Response:", response)
+        results = [{"text": obj.properties.get("text", "")} for obj in response.objects]
         return {"results": results}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/add")
-async def add_document(doc: Document):
-    """
-    Inserts a new document into the 'Question' collection.
-    """
-    try:
-        questions_collection = client.collections.get("Question")
-        res = questions_collection.data.insert(properties=doc.dict())
-        return {"status": "success", "object_id": str(res.uuid)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

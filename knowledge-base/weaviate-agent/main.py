@@ -99,7 +99,7 @@ async def get_context(request: QueryRequest):
         labour_collection = client.collections.get("LabourAct")
         response = await labour_collection.query.near_text(
             query=request.question,
-            limit=3,
+            limit=5,
             return_properties=["text"]
         )
         print("Raw Weaviate Response:", response)

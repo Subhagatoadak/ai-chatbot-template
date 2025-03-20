@@ -14,8 +14,8 @@ class LabourDocument(BaseModel):
     text: str
     chunk_id: int
 
-# --- Weaviate Client Initialization ---
-client = weaviate.connect_to_custom(
+# --- Asynchronous Weaviate Client Initialization ---
+client = weaviate.use_async_with_custom(
     http_host=os.getenv("WEAVIATE_HOST", "weaviate"),
     http_port=int(os.getenv("WEAVIATE_PORT", "8080")),
     http_secure=False,
@@ -25,15 +25,15 @@ client = weaviate.connect_to_custom(
     headers={"X-OpenAI-Api-Key": os.getenv("OPENAI_API_KEY")}
 )
 
-def create_labour_act_collection():
+async def create_labour_act_collection():
     """
     Creates the 'LabourAct' collection if it doesn't already exist.
     """
-    if client.collections.exists("LabourAct"):
+    if await client.collections.exists("LabourAct"):
         print("Collection 'LabourAct' already exists.")
         return
 
-    client.collections.create(
+    await client.collections.create(
         name="LabourAct",
         vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai(),
         properties=[
@@ -58,7 +58,7 @@ def chunk_text(text, chunk_size=1000):
     words = text.split()
     return [" ".join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)]
 
-def ingest_labour_act_pdf():
+async def ingest_labour_act_pdf():
     """
     Extracts text from the Labour Act PDF and stores it in Weaviate.
     """
@@ -71,22 +71,22 @@ def ingest_labour_act_pdf():
     # Insert chunks into Weaviate
     labour_collection = client.collections.get("LabourAct")
     for i, chunk in enumerate(document_chunks):
-        labour_collection.data.insert(properties={"text": chunk, "chunk_id": i})
+        await labour_collection.data.insert(properties={"text": chunk, "chunk_id": i})
     
     print(f"Inserted {len(document_chunks)} chunks from Labour Act PDF.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    create_labour_act_collection()
-
-    # Ingest Labour Act content if not already present
+    # Connect the client
+    await client.connect()
+    # Create the collection if it doesn't exist
+    await create_labour_act_collection()
     labour_collection = client.collections.get("LabourAct")
-    existing_docs = labour_collection.query.fetch_objects(limit=1)
+    existing_docs = await labour_collection.query.fetch_objects(limit=1)
     if not existing_docs.objects:
-        ingest_labour_act_pdf()
-
+        await ingest_labour_act_pdf()
     yield
-    client.close()
+    await client.close()
 
 app = FastAPI(title="Weaviate Labour Act Agent", lifespan=lifespan)
 
@@ -97,7 +97,7 @@ async def get_context(request: QueryRequest):
     """
     try:
         labour_collection = client.collections.get("LabourAct")
-        response = labour_collection.query.near_text(
+        response = await labour_collection.query.near_text(
             query=request.question,
             limit=3,
             return_properties=["text"]

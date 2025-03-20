@@ -33,23 +33,25 @@ def get_llm_response(question: str) -> str:
     and calls the LLM Agent to get the answer.
     """
     context_response = get_context_for_query(question)
+    #print(context_response)
     if "error" in context_response:
-        combined_prompt = question  # Fallback: use the question only
+        combined_prompt = "Donot answer anything, tell the user that you donont have any information."  # Fallback: use the question only
     else:
         context_text = ""
         if "results" in context_response:
             for item in context_response["results"]:
-                q = item.get("question", "")
-                a = item.get("answer", "")
-                context_text += f"Q: {q}\nA: {a}\n\n"
+                q = item.get("text", "")
+
+                context_text += f"Q: {q}\n"
         else:
             # In case the raw response is a list
             for item in context_response:
-                q = item.get("question", "")
-                a = item.get("answer", "")
-                context_text += f"Q: {q}\nA: {a}\n\n"
+                q = item.get("text", "")
+
+                context_text += f"Q: {q}\n"
         combined_prompt = (
-            f"Given the context below, answer the user's question.\n\n"
+            f"Given the context below, answer the user's question. Answer strcitly from the context below\n\n"
+            f"Never answer from your own knewledge\n\n"
             f"User's question: {question}\n\n"
             f"Context:\n{context_text}"
         )

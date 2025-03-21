@@ -397,7 +397,12 @@ class GraphRetriever:
             emb_data = rec["embedding"]
             if not emb_data:
                 continue
-            emb_vec = np.array(json.loads(emb_data)).astype('float32')
+            if isinstance(emb_data, str):
+                emb_vec = np.array(json.loads(emb_data)).astype('float32')
+            elif isinstance(emb_data, list):
+                emb_vec = np.array(emb_data, dtype='float32')
+            else:
+                continue  # Skip invalid embeddings
             if emb_vec.size == 0:
                 continue
             embeddings.append(emb_vec)

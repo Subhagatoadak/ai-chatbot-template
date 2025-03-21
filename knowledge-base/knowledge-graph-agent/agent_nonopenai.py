@@ -1,6 +1,13 @@
 import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false" 
+
+import multiprocessing as mp
+mp.set_start_method("spawn", force=True)
+
+
 import re
 import json
+
 import numpy as np
 import networkx as nx
 import nltk
@@ -18,10 +25,19 @@ from contextlib import asynccontextmanager
 from transformers import pipeline
 import torch
 import faiss
+import hnswlib
+from annoy import AnnoyIndex
 from functools import lru_cache
 
-# Set Transformers to offline mode (make sure models are already cached)
+# PyTorch Geometric imports for the GNN re-ranker
+import torch.nn as nn
+from torch_geometric.nn import GCNConv
+from torch_geometric.data import Data
+
+# For offline mode if needed
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+
 
 # Ensure nltk data is available
 nltk.download("punkt")
@@ -34,7 +50,6 @@ nltk.download("words")
 
 load_dotenv()
 
-# Debug: Print current working directory
 print("Current working directory:", os.getcwd())
 
 # Retrieve API keys from .env (OpenAI key is not used for relevance here)
@@ -42,11 +57,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 NEO4J_PAASOWRD = os.getenv("NEO4J_PASSWORD")
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
-# Set up device for models (use GPU if available)
+# Set up device (use GPU if available)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Using device:", device)
 
-# Initialize Hugging Face zero-shot classification pipeline for relevance scoring
+# Initialize Hugging Face zero-shot pipeline for relevance scoring
 hf_relevance_pipeline = pipeline("zero-shot-classification", model="facebook/bart-large-mnli", device=0 if device=="cuda" else -1)
 
 # --- Pydantic Models ---
@@ -56,33 +71,21 @@ class sentencscore(BaseModel):
 class QueryRequest(BaseModel):
     question: str
 
-# The response now returns a structured dict.
+# Return a structured dict with "chunks" and "ancestors"
 class QueryResponse(BaseModel):
     results: dict
 
 # --- Helper Functions for Adaptive Chunking ---
 @lru_cache(maxsize=128)
 def determine_optimal_chunk_size(text, target_chunks=10, min_chunk=5, max_chunk=30):
-    """
-    Determines an optimal chunk size (in words) for a given text,
-    aiming to produce approximately target_chunks chunks.
-    Clamped between min_chunk and max_chunk.
-    Caching is applied.
-    """
     words = text.split()
     n_words = len(words)
     if n_words == 0:
         return min_chunk
     optimal = n_words // target_chunks
-    optimal = max(min_chunk, min(optimal, max_chunk))
-    return optimal
+    return max(min_chunk, min(optimal, max_chunk))
 
 def split_into_chunks(text, optimal_size=None, overlap=3):
-    """
-    Splits text into smaller overlapping chunks.
-    If optimal_size is not provided, it is determined dynamically.
-    Filters out empty chunks.
-    """
     words = text.split()
     if optimal_size is None:
         optimal_size = determine_optimal_chunk_size(text)
@@ -97,9 +100,6 @@ def split_into_chunks(text, optimal_size=None, overlap=3):
 
 # --- PDF and Text Processing Functions ---
 def load_pdf_text(file_path):
-    """
-    Loads and extracts text from a PDF file.
-    """
     text = ""
     with open(file_path, "rb") as f:
         reader = pypdf.PdfReader(f)
@@ -110,25 +110,16 @@ def load_pdf_text(file_path):
     return text
 
 def extract_paragraphs(text):
-    """
-    Splits the text into paragraphs using double newlines.
-    """
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     print(f"Extracted {len(paragraphs)} paragraphs.")
     return paragraphs
 
 def extract_sentences(text):
-    """
-    Uses NLTK's sentence tokenizer to extract sentences.
-    """
     sentences = nltk.sent_tokenize(text)
     print(f"Extracted {len(sentences)} sentences.")
     return sentences
 
 def extract_named_entities(text):
-    """
-    Uses NLTK's ne_chunk to extract named entities.
-    """
     tokens = nltk.word_tokenize(text)
     pos_tags = nltk.pos_tag(tokens)
     tree = nltk.ne_chunk(pos_tags)
@@ -142,17 +133,9 @@ def extract_named_entities(text):
     return entities
 
 def extract_phrases_from_sentence(sentence):
-    """
-    Extracts candidate phrases (named entities) from a sentence.
-    """
     return extract_named_entities(sentence)
 
 def embed_text(model, text_list, precision=6):
-    """
-    Generate embeddings for a list of text items with controlled precision.
-    Returns an empty array if no text is provided.
-    Batch processing is used.
-    """
     if not text_list:
         return np.array([])
     embeddings = model.encode(text_list, batch_size=32, show_progress_bar=False)
@@ -160,9 +143,6 @@ def embed_text(model, text_list, precision=6):
     return np.round(embeddings, precision)
 
 def adaptive_multiscale_grid(text_list):
-    """
-    Assigns items to 'short', 'medium', and 'long' categories based on token count percentiles.
-    """
     lengths = np.array([len(item.split()) for item in text_list])
     short_threshold = np.percentile(lengths, 25)
     long_threshold = np.percentile(lengths, 75)
@@ -181,10 +161,6 @@ def adaptive_multiscale_grid(text_list):
 
 # --- Hugging Face Relevance Scoring ---
 def get_hf_relevance_score(phrase, context):
-    """
-    Uses a Hugging Face zero-shot classification pipeline to compute a relevance score.
-    Returns the score for the label "relevant".
-    """
     if len(context.split()) > 200:
         context = " ".join(context.split()[:200])
     hypothesis = f"This context is relevant to the phrase: {phrase}"
@@ -197,10 +173,6 @@ def get_hf_relevance_score(phrase, context):
     return 0.5
 
 def update_ca(scale, grid, items, embeddings):
-    """
-    Cellular Automata update for a single scale using cosine similarity and Hugging Face relevance score.
-    Batch processes relevance scores for efficiency.
-    """
     new_grid = grid[scale].copy()
     indices = list(range(1, len(grid[scale]) - 1))
     contexts = [" | ".join([items[i - 1], items[i], items[i + 1]]) for i in indices]
@@ -219,12 +191,60 @@ def update_ca(scale, grid, items, embeddings):
             new_grid[i] = 0
     return scale, new_grid
 
+# --- GNN Re-Ranker ---
+class GNNReRanker(nn.Module):
+    def __init__(self, input_dim, hidden_dim=128):
+        super(GNNReRanker, self).__init__()
+        self.conv1 = GCNConv(input_dim, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, 1)
+    def forward(self, x, edge_index):
+        x = self.conv1(x, edge_index)
+        x = torch.relu(x)
+        x = self.conv2(x, edge_index)
+        return x.squeeze()
+
+def rerank_with_gnn(candidate_id, candidate_embedding, ancestor_chain):
+    """
+    For a given candidate (with its embedding and ancestor chain including embeddings),
+    build a small PyG graph and run the GNN re-ranker.
+    Returns a refined score.
+    Note: This is a proof-of-concept; for real applications, the GNN should be pre-trained.
+    """
+    # Build node list: candidate and its ancestors that have embeddings
+    nodes = []
+    node_ids = []
+    # Candidate node first
+    nodes.append(candidate_embedding)
+    node_ids.append(candidate_id)
+    # For each ancestor in the chain, expect tuple: (id, type, content, embedding)
+    for anc in ancestor_chain:
+        # anc is expected to be a tuple (id, type, content, embedding)
+        if len(anc) == 4 and anc[3] is not None:
+            nodes.append(anc[3])
+            node_ids.append(anc[0])
+    if len(nodes) == 1:
+        # No ancestor embeddings available, return original score
+        return None
+    x = torch.tensor(np.vstack(nodes), dtype=torch.float)
+    # For simplicity, connect every node to every other (fully connected graph)
+    num_nodes = x.shape[0]
+    edge_index = []
+    for i in range(num_nodes):
+        for j in range(num_nodes):
+            if i != j:
+                edge_index.append([i, j])
+    edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+    input_dim = x.shape[1]
+    gnn_model = GNNReRanker(input_dim)
+    gnn_model.eval()
+    with torch.no_grad():
+        scores = gnn_model(x, edge_index)
+    # Find refined score for candidate (first node)
+    refined_score = scores[0].item()
+    return refined_score
+
 # --- Graph Chunking and Retrieval Classes ---
 class MultiscaleCellularAutomataGraphChunker:
-    """
-    Processes a document into a hierarchical graph and pushes it to Neo4j.
-    Hierarchy: Document → Context → Paragraph → Subchunk → Sentence → Phrase
-    """
     def __init__(self, model_name="all-MiniLM-L6-v2", max_iters=2,
                  neo4j_uri="bolt://localhost:7687", neo4j_user="neo4j",
                  neo4j_pass="your_password"):
@@ -241,9 +261,6 @@ class MultiscaleCellularAutomataGraphChunker:
         self.neo4j_pass = neo4j_pass
 
     def process_documents(self, documents):
-        """
-        Process each document into a hierarchy with fine-grained chunks.
-        """
         for doc_idx, doc_text in enumerate(documents):
             print(f"Processing document {doc_idx}...")
             doc_embedding = embed_text(self.embedding_model, [doc_text])[0]
@@ -324,9 +341,6 @@ class MultiscaleCellularAutomataGraphChunker:
         print(f"Graph processing complete. Total nodes: {len(self.graph.nodes())}, edges: {len(self.graph.edges())}")
 
     def save_graph_to_neo4j(self, clear_db=True):
-        """
-        Pushes the built graph to Neo4j using batch writes.
-        """
         graph_data = nx.node_link_data(self.graph)
         driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_pass))
         with driver.session() as session:
@@ -354,21 +368,21 @@ class MultiscaleCellularAutomataGraphChunker:
 class GraphRetriever:
     """
     Connects to Neo4j and enables vector-based similarity search and context retrieval.
+    Supports multiple indexing backends: "faiss", "hnswlib", or "annoy".
+    Optionally uses a GNN re-ranker to refine candidate scores.
     Only retrieves nodes of type 'subchunk', 'sentence', or 'phrase' (fine-grained chunks).
-    Uses FAISS for approximate nearest neighbor search.
     """
     def __init__(self, model_name="all-MiniLM-L6-v2", neo4j_uri="bolt://localhost:7687",
-                 neo4j_user="neo4j", neo4j_pass="your_password"):
+                 neo4j_user="neo4j", neo4j_pass="your_password", index_backend="faiss", use_gnn=False):
         self.embedding_model = SentenceTransformer(model_name, device=device)
         self.driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_pass))
+        self.index_backend = index_backend.lower()
+        self.use_gnn = use_gnn
         self.index = None
-        self.id_map = []  # Mapping from FAISS index to node info
-        self._build_faiss_index()
+        self.id_map = []  # mapping from index to node info
+        self._build_index()
 
-    def _build_faiss_index(self):
-        """
-        Retrieves all fine-grained nodes from Neo4j and builds a FAISS index.
-        """
+    def _build_index(self):
         with self.driver.session() as session:
             query = """
             MATCH (n:Chunk)
@@ -392,35 +406,144 @@ class GraphRetriever:
                 "type": rec["type"],
                 "content": rec["content"]
             })
-        if embeddings:
-            embeddings = np.vstack(embeddings)
-            d = embeddings.shape[1]
+        if not embeddings:
+            print("No fine-grained nodes found to build index.")
+            return
+        embeddings = np.vstack(embeddings)
+        d = embeddings.shape[1]
+        if self.index_backend == "faiss":
             self.index = faiss.IndexFlatL2(d)
             self.index.add(embeddings)
             print(f"Built FAISS index with {self.index.ntotal} vectors.")
+        elif self.index_backend == "hnswlib":
+            self.index = hnswlib.Index(space='cosine', dim=d)
+            self.index.init_index(max_elements=embeddings.shape[0], ef_construction=200, M=16)
+            self.index.add_items(embeddings)
+            self.index.set_ef(50)
+            print(f"Built hnswlib index with {self.index.get_current_count()} vectors.")
+        elif self.index_backend == "annoy":
+            self.index = AnnoyIndex(d, 'angular')
+            for i, vec in enumerate(embeddings):
+                self.index.add_item(i, vec)
+            self.index.build(10)
+            print(f"Built Annoy index with {len(embeddings)} vectors.")
         else:
-            print("No fine-grained nodes found to build FAISS index.")
+            raise ValueError("Unsupported index_backend. Use 'faiss', 'hnswlib', or 'annoy'.")
+
+    def _get_ancestor_chain(self, session, node_id):
+        query = """
+        MATCH path = (n:Chunk {id: $node_id})<-[:HAS_CHILD*0..]-(ancestor)
+        RETURN nodes(path) as allNodes
+        """
+        records = session.run(query, node_id=node_id).data()
+        ancestor_info = []
+        for rec in records:
+            for node in rec["allNodes"]:
+                # Try to parse embedding if available
+                emb = None
+                if "embedding" in node and node["embedding"]:
+                    try:
+                        emb = np.array(json.loads(node["embedding"]), dtype='float32')
+                    except:
+                        pass
+                ancestor_info.append((node["id"], node.get("type", ""), node.get("content", ""), emb))
+        return ancestor_info
+
+    # Optional GNN re-ranking function for a candidate.
+    def rerank_with_gnn(self, candidate):
+        """
+        For a given candidate (tuple: (id, type, content, initial_sim)),
+        retrieve its ancestor chain (with embeddings) and use a simple GNN to compute a refined score.
+        Note: In production, the GNN should be pre-trained.
+        """
+        candidate_id, candidate_type, candidate_content, init_sim = candidate
+        with self.driver.session() as session:
+            ancestor_chain = self._get_ancestor_chain(session, candidate_id)
+        # Build node list: candidate first, then ancestors with valid embeddings
+        nodes = []
+        node_ids = []
+        candidate_emb = None
+        # For candidate, look up its embedding in our id_map
+        for info in self.id_map:
+            if info["id"] == candidate_id:
+                # For simplicity, re-embed candidate content
+                candidate_emb = self.embedding_model.encode([info["content"]])[0].astype('float32')
+                break
+        if candidate_emb is None:
+            return init_sim
+        nodes.append(candidate_emb)
+        node_ids.append(candidate_id)
+        for anc in ancestor_chain:
+            # anc is (id, type, content, emb)
+            if anc[3] is not None:
+                nodes.append(anc[3])
+                node_ids.append(anc[0])
+        if len(nodes) == 1:
+            return init_sim
+        x = torch.tensor(np.vstack(nodes), dtype=torch.float)
+        num_nodes = x.shape[0]
+        edge_index = []
+        for i in range(num_nodes):
+            for j in range(num_nodes):
+                if i != j:
+                    edge_index.append([i, j])
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        input_dim = x.shape[1]
+        gnn_model = GNNReRanker(input_dim)
+        gnn_model.eval()
+        with torch.no_grad():
+            scores = gnn_model(x, edge_index)
+        candidate_idx = node_ids.index(candidate_id)
+        refined_score = scores[candidate_idx].item()
+        print(f"Refined GNN score for candidate {candidate_id}: {refined_score}")
+        return refined_score
 
     def retrieve_similar_nodes(self, query_text, top_k=3, sim_threshold=0.5):
-        """
-        Embeds the query, searches the FAISS index for the top matching nodes,
-        and returns only nodes with cosine similarity >= sim_threshold.
-        """
         query_embedding = self.embedding_model.encode([query_text])[0].astype('float32')
         if self.index is None or self.index.ntotal == 0:
             return []
-        distances, indices = self.index.search(np.array([query_embedding]), top_k * 5)
-        results = []
-        for dist, idx in zip(distances[0], indices[0]):
-            if idx == -1:
-                continue
-            sim = 1 - (dist / 2)
-            if sim < sim_threshold:
-                continue
-            node_info = self.id_map[idx]
-            results.append((node_info["id"], node_info["type"], node_info["content"], sim))
-        results.sort(key=lambda x: x[3], reverse=True)
-        top_matches = results[:top_k]
+        if self.index_backend == "faiss":
+            distances, indices = self.index.search(np.array([query_embedding]), top_k * 5)
+            candidate_results = []
+            for dist, idx in zip(distances[0], indices[0]):
+                if idx == -1:
+                    continue
+                sim = 1 - (dist / 2)
+                if sim < sim_threshold:
+                    continue
+                candidate_results.append((self.id_map[idx]["id"], self.id_map[idx]["type"],
+                                          self.id_map[idx]["content"], sim))
+        elif self.index_backend == "hnswlib":
+            labels, distances = self.index.knn_query(query_embedding, k=top_k * 5)
+            candidate_results = []
+            for idx, dist in zip(labels[0], distances[0]):
+                sim = 1 - dist
+                if sim < sim_threshold:
+                    continue
+                candidate_results.append((self.id_map[idx]["id"], self.id_map[idx]["type"],
+                                          self.id_map[idx]["content"], sim))
+        elif self.index_backend == "annoy":
+            indices, dists = self.index.get_nns_by_vector(query_embedding.tolist(), top_k * 5, include_distances=True)
+            candidate_results = []
+            for idx, dist in zip(indices, dists):
+                sim = 1 - (dist / 2)
+                if sim < sim_threshold:
+                    continue
+                candidate_results.append((self.id_map[idx]["id"], self.id_map[idx]["type"],
+                                          self.id_map[idx]["content"], sim))
+        else:
+            raise ValueError("Unsupported index_backend.")
+        candidate_results.sort(key=lambda x: x[3], reverse=True)
+        # Optionally re-rank candidates using GNN if enabled.
+        if self.use_gnn:
+            reranked = []
+            for cand in candidate_results[:top_k]:
+                refined = self.rerank_with_gnn(cand)
+                reranked.append((cand[0], cand[1], cand[2], refined))
+            reranked.sort(key=lambda x: x[3], reverse=True)
+            top_matches = reranked[:top_k]
+        else:
+            top_matches = candidate_results[:top_k]
         final_results = []
         with self.driver.session() as session:
             for node_id, node_type, node_content, sim in top_matches:
@@ -433,18 +556,6 @@ class GraphRetriever:
                     "ancestor_chain": context_chain
                 })
         return final_results
-
-    def _get_ancestor_chain(self, session, node_id):
-        query = """
-        MATCH path = (n:Chunk {id: $node_id})<-[:HAS_CHILD*0..]-(ancestor)
-        RETURN nodes(path) as allNodes
-        """
-        records = session.run(query, node_id=node_id).data()
-        ancestor_info = set()
-        for rec in records:
-            for node in rec["allNodes"]:
-                ancestor_info.add((node["id"], node["type"], node["content"]))
-        return list(ancestor_info)
 
     def retrieve_subgraph(self, start_node_id):
         with self.driver.session() as session:
@@ -471,12 +582,6 @@ class GraphRetriever:
         return {"nodes": list(node_map.values()), "edges": list(edges)}
 
 def extract_context_for_query(query_text, retriever, top_k=3):
-    """
-    Retrieves the top matching nodes and aggregates their context.
-    Returns a dictionary with:
-      - 'chunks': a list of chunk objects (id, type, content, similarity)
-      - 'ancestors': a mapping from chunk id to its ancestor chain.
-    """
     results = retriever.retrieve_similar_nodes(query_text, top_k=top_k)
     output = {"chunks": [], "ancestors": {}}
     for res in results:
@@ -504,7 +609,9 @@ async def lifespan(app: FastAPI):
             model_name="all-MiniLM-L6-v2",
             neo4j_uri="bolt://neo4j:7687",
             neo4j_user="neo4j",
-            neo4j_pass=NEO4J_PAASOWRD
+            neo4j_pass=NEO4J_PAASOWRD,
+            index_backend="faiss",
+            use_gnn=False  # Set to True to enable GNN re-ranking
         )
     else:
         print("Processing PDF and storing graph in Neo4j...")
@@ -512,7 +619,7 @@ async def lifespan(app: FastAPI):
         documents = [document_text]
         chunker = MultiscaleCellularAutomataGraphChunker(
             model_name="all-MiniLM-L6-v2",
-            max_iters=1,  # quick test; adjust iterations as needed
+            max_iters=1,
             neo4j_uri="bolt://neo4j:7687",
             neo4j_user="neo4j",
             neo4j_pass=NEO4J_PAASOWRD
@@ -523,7 +630,9 @@ async def lifespan(app: FastAPI):
             model_name="all-MiniLM-L6-v2",
             neo4j_uri="bolt://neo4j:7687",
             neo4j_user="neo4j",
-            neo4j_pass=NEO4J_PAASOWRD
+            neo4j_pass=NEO4J_PAASOWRD,
+            index_backend="faiss",
+            use_gnn=True  # Enable GNN re-ranking if desired
         )
     yield
     # (Optional shutdown cleanup)

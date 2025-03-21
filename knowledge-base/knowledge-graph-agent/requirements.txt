@@ -12,4 +12,8 @@ pypdf
 fastapi
 faiss-cpu
 torch
+hnswlib
+annoy
+transformers
+torch_geometric
 

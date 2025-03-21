@@ -1,189 +1,115 @@
-# **AI Chatbot Template - A Modern Conversational Assistant** 🚀  
-This project provides a **template** for building an **AI-powered chatbot** using **React (frontend) and FastAPI (backend)**. The chatbot supports **voice input, markdown responses, notification sounds, and API-driven conversations** with a scalable architecture.
+
+# 📚 Neo4j-Based Knowledge Graph with Cellular Automata Chunking
+
+This project builds a **context-aware document understanding system** using a novel **Cellular Automata (CA) chunker**, a **graph-based retriever**, and a **Neo4j-powered knowledge graph**. The core idea is to enable multi-resolution chunking and embedding of documents into a semantically rich and queryable graph.
 
 ---
 
-## **🛠️ Features **
-✅ **AI-Powered Responses** - Supports OpenAI, HuggingFace, or custom LLMs  
-✅ **Voice Input** - Uses Web Speech API for speech-to-text  
-✅ **Markdown Rendering** - Supports formatted text like **bold**, *italic*, `code` blocks  
-✅ **Notification Sounds** - Plays an alert when a response is received  
-✅ **Dynamic Message Sizing** - Adjusts bubble size based on content length  
-✅ **Full-Screen UI** - Responsive chatbot interface for all devices  
-✅ **Scalable Architecture** - Dockerized for easy deployment  
+## 🔬 Method Overview
+
+### 📄 1. PDF Ingestion and Preprocessing
+Documents (e.g., `constitution.pdf`) are loaded and processed into paragraphs, sentences, and phrases using **NLTK**. Instead of using spaCy (which has bulky dependencies), this version uses named entity extraction and POS tagging with pure NLTK.
+
+### ⚙️ 2. Cellular Automata Chunker
+The **Multiscale Cellular Automata (CA)** mechanism categorizes text chunks as `short`, `medium`, or `long` based on their token lengths and applies iterative context-aware updates using:
+- Cosine similarity of embeddings
+- LLM-based relevance scores (OpenAI GPT-4o)
+
+This dynamic chunking simulates "activations" in a local neighborhood, mimicking how meaning builds across scales in natural language.
+
+### 🧠 3. Knowledge Graph Construction
+The resulting hierarchy is:
+```
+Document → Context → Paragraph → Sentence → Phrase
+```
+Each node is embedded and stored as a `Chunk` in Neo4j with parent-child relationships.
+
+### 🔍 4. Graph Retriever
+A `GraphRetriever` allows semantic search by embedding queries and comparing them to all stored chunks. It also reconstructs ancestor chains to provide contextual explanations.
 
 ---
 
-## **📂 Project Structure**
+## 🚀 Usage
+
+Run the app using Docker:
+
 ```bash
-ai-chatbot-template/
-├── backend/                 # FastAPI-based backend
-│   ├── app/
-│   │   ├── main.py          # FastAPI application entry point
-│   │   ├── routes/
-│   │   │   ├── chat.py      # Chatbot API endpoint
-│   │   ├── models/
-│   │   │   ├── message.py   # Request/Response models
-│   ├── requirements.txt     # Backend dependencies
-│   └── Dockerfile           # Backend Docker configuration
-│
-├── frontend/                # React-based frontend
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ChatApp.js   # Main chatbot UI component
-│   │   ├── App.js           # React app entry point
-│   │   ├── index.js         # React DOM rendering
-│   ├── public/
-│   │   ├── index.html       # HTML file for React app
-│   ├── package.json         # Frontend dependencies
-│   ├── Dockerfile           # Frontend Docker configuration
-│
-├── sounds/
-│   ├── notification.mp3     # Sound alert for bot response
-│
-├── docker-compose.yml       # Docker Compose configuration
-├── kubernetes/              # Kubernetes deployment configurations
-└── README.md                # This README file
+docker-compose build
+docker-compose up
 ```
 
----
+Then hit the FastAPI endpoint:
 
-## **📌 Setup & Installation**
-### **1️⃣ Clone the Repository**
 ```bash
-git clone https://github.com/yourusername/ai-chatbot-template.git
-cd ai-chatbot-template
-```
-
-### **2️⃣ Backend Setup (FastAPI)**
-#### **(a) Install Dependencies**
-```bash
-cd backend
-pip install -r requirements.txt
-```
-
-#### **(b) Run the Backend**
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-Backend is now running at: **`http://localhost:8000`**
-
----
-
-### **3️⃣ Frontend Setup (React)**
-#### **(a) Install Dependencies**
-```bash
-cd frontend
-npm install
-```
-
-#### **(b) Start the Frontend**
-```bash
-npm start
-```
-Frontend is now available at: **`http://localhost:3000`**
-
----
-
-## **🎯 API Endpoints**
-### **📌 Chat API**
-| Method | Endpoint | Description |
-|--------|---------|-------------|
-| `POST` | `/api/chat` | Send a message and receive AI-generated response |
-
-#### **Example Request**
-```json
+POST /context
 {
-  "question": "Tell me about black holes."
-}
-```
-
-#### **Example Response**
-```json
-{
-  "answer": "**Black holes** are regions in space where gravity is so strong that nothing can escape, not even light."
+  "question": "What are the duties of the President?"
 }
 ```
 
 ---
 
-## **🚀 Deployment Options**
-### **1️⃣ Docker Deployment**
-```bash
-docker-compose up --build
-```
-This launches the **backend, frontend, and Nginx**.
+## 🧠 Uniqueness & Advantages
 
-### **2️⃣ Kubernetes Deployment**
-```bash
-kubectl apply -f kubernetes/
-kubectl get pods
-```
+- ✅ **Multiscale CA-Based Chunking**: Combines local cosine similarity with global context awareness via LLM scoring.
+- ✅ **Graph-Based Semantics**: Hierarchical graph structure enables both retrieval and reasoning.
+- ✅ **Flexible Preprocessing**: Pure NLTK-based chunker avoids heavyweight NLP dependencies like spaCy.
 
 ---
 
-## **🛠️ Next Steps & Enhancements**
-### **1️⃣ Knowledge Base Integration**
-To improve chatbot intelligence, we can integrate a **knowledge base** with:
-- **Vector Databases** (FAISS, Pinecone, Weaviate) for semantic search
-- **Graph Databases** (Neo4j) to store relationships between entities
-- **RDBMS** (PostgreSQL, MySQL) for structured knowledge storage
+## ⚠️ Limitations
 
-> Example: Use **RAG (Retrieval-Augmented Generation)** to fetch domain-specific information before generating responses.
+> ⚡ **Data Preparation is Currently Slow**
 
-### **2️⃣ Intent Detection & Query Orchestration**
-- Implement **Intent Classification** using models like BERT, GPT, or fine-tuned LLMs
-- **Multi-agent systems** for handling different types of queries (FAQ bot, transactional bot, creative writing bot)
+Yes — the graph construction step is noticeably slow, especially on large documents. This is primarily due to:
+- LLM scoring for every phrase-context window
+- Multiprocessing + I/O latency
+- Graph serialization to Neo4j
 
-### **3️⃣ Scalability Improvements**
-- **Microservices Architecture**: Split LLM processing, vector search, and UI into separate services.
-- **Distributed Caching** (Redis, Memcached) to speed up response time.
-- **Cloud Integration** (AWS Lambda, Google Cloud Run) for serverless execution.
-
-### **4️⃣ Multi-Modal Capabilities**
-- **Image-based chat** (Integrate vision models for interpreting images)
-- **Video analytics** (Use AI to extract insights from video conversations)
-- **Voice-based conversation** (Convert text responses to speech)
-
-### **5️⃣ Improved UI/UX**
-- **Dark Mode & Theming** (User-customizable interface)
-- **WebSockets for Real-Time Updates** (Instant bot responses)
-- **Animated Chat Bubbles** (Smooth transitions using Framer Motion)
+**⚙️ Work is actively ongoing to make this more efficient**, including:
+- Memoization of LLM scores
+- Batch embedding optimizations
+- Lazy graph writes
 
 ---
 
-## **🐞 Troubleshooting**
-### **Frontend Not Working?**
-✅ Ensure **backend is running** before starting frontend.  
-✅ Check **API URL** in `ChatApp.js`.  
+## 📁 agent.py Review & USP
 
-### **Backend API Not Responding?**
-✅ Run `uvicorn` manually:  
-```bash
-cd backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-✅ Check logs using:
-```bash
-docker-compose logs -f backend
-```
+In reviewing `agent.py`, we identified the following:
 
----
+### ✅ Unique Selling Proposition (USP)
+- Seamless retrieval of fine-grained, multi-level context for any input query
+- Simple plug-and-play design for swapping in new documents
+- Potential for cross-document reasoning by linking multiple context trees
 
-## **📜 Contribution Guidelines**
-1. **Fork the repository**
-2. **Create a new branch** (`feature-xyz`)
-3. **Commit your changes** (`git commit -m "Added feature xyz"`)
-4. **Push and create a Pull Request**
+### ❌ Current Gaps
+- No ranking logic for ancestor chain relevance
+- Query-time performance may degrade with large graphs
+- Lack of streaming context generation for large answer chains
 
-We welcome **bug reports, feature requests, and pull requests**!
+We’re actively working to plug these gaps with a new version of `agent.py` that supports:
+- Context prioritization
+- Query cache with embeddings
+- Streaming token responses
 
 ---
 
-## **📜 License**
-This project is **open-source** under the MIT License.
-
+## 🧪 In Development
+- [ ] Streaming response support with token buffering
+- [ ] Multiple-document context merging
+- [ ] Graph pruning for performance
+- [ ] Visual dashboard for Neo4j graphs
 
 ---
 
-This README provides a **structured template for AI chatbot development**, covering **setup, API usage, future enhancements, and deployment strategies**. 🚀 Feel free to customize it for your own chatbot projects!
+## 🤝 Contributing
+If you’re interested in improving the CA chunker, optimizing Neo4j interactions, or enhancing retrieval — feel free to open an issue or submit a PR!
+
+---
+
+## 📘 License
+MIT License — open for commercial and academic use.
+
+---
+
+Let me know if you'd like this turned into a live GitHub repo structure or if you want badges, architecture diagrams, or deployment guides added!

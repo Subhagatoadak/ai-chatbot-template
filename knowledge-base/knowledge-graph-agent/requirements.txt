@@ -1,0 +1,13 @@
+numpy
+networkx
+nltk
+openai
+uvicorn
+neo4j
+sentence-transformers
+scipy
+pydantic
+python-dotenv
+pypdf
+fastapi
+

@@ -41,3 +41,27 @@ services:
     depends_on:
       - frontend
       - backend
+
+  neo4j:
+    image: neo4j:4.4
+    ports:
+      - "7687:7687"
+      - "7474:7474"
+    env_file:
+      - config/.env
+    volumes:
+      - neo4j_data:/data
+  
+  neo4j-agent:
+    build:
+      context: ./knowledge-base/knowledge-graph-agent
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    depends_on:
+      - neo4j
+    env_file:
+      - config/.env
+
+volumes:
+  neo4j_data:

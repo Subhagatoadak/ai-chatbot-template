@@ -83,7 +83,6 @@ In reviewing `agent.py`, we identified the following:
 - Potential for cross-document reasoning by linking multiple context trees
 
 ### ❌ Current Gaps
-- No ranking logic for ancestor chain relevance
 - Query-time performance may degrade with large graphs
 - Lack of streaming context generation for large answer chains
 

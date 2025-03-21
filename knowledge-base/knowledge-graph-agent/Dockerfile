@@ -22,10 +22,10 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy application code into the container
 COPY data/ data/
-COPY agent.py .
+COPY agent_nonopenai.py .
 
 # Expose port 8000
 EXPOSE 8001
 
 # Run the FastAPI app using uvicorn
-CMD ["uvicorn", "agent:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "agent_nonopenai:app", "--host", "0.0.0.0", "--port", "8001"]
